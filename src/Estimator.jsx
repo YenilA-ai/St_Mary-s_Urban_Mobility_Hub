@@ -1,329 +1,611 @@
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 
 function Estimator() {
-  const [distance, setDistance] = useState("")
-  const [unit, setUnit] = useState("km")
-  const [mode, setMode] = useState("Bus")
-  const [result, setResult] = useState(null)
-  const [loading, setLoading] = useState(false)
 
   const [from, setFrom] = useState(null)
   const [to, setTo] = useState(null)
+
   const [fromLabel, setFromLabel] = useState("")
   const [toLabel, setToLabel] = useState("")
 
   const [fromSuggestions, setFromSuggestions] = useState([])
   const [toSuggestions, setToSuggestions] = useState([])
 
-  const isJourneyMode = mode === "Bus" || mode === "Rail"
+  const [showFrom, setShowFrom] = useState(false)
+  const [showTo, setShowTo] = useState(false)
 
-  // --------------------------
-  // LOCAL STORAGE
-  // --------------------------
-  useEffect(() => {
-    const saved = JSON.parse(localStorage.getItem("estimator"))
-    if (saved) {
-      setDistance(saved.distance || "")
-      setMode(saved.mode || "Bus")
-    }
-  }, [])
+  const [journeys, setJourneys] = useState([])
 
-  useEffect(() => {
-    localStorage.setItem(
-      "estimator",
-      JSON.stringify({
-        distance,
-        mode,
-      })
-    )
-  }, [distance, mode])
+  const [loading, setLoading] = useState(false)
 
-  // --------------------------
-  // HELPERS
-  // --------------------------
-  function kmValue(v, u) {
-    const n = parseFloat(v)
-    if (!n || n <= 0) return null
-    return u === "miles" ? n * 1.60934 : n
+  const [tubeUpdates, setTubeUpdates] = useState([])
+
+  const [selectedMode, setSelectedMode] = useState("all")
+
+  const londonLocations = [
+
+  "Kingston",
+  "Twickenham",
+  "Richmond",
+  "Wimbledon",
+  "Croydon",
+  "Stratford",
+  "Canary Wharf",
+  "Waterloo",
+  "Victoria",
+  "Paddington",
+  "Ealing",
+  "Hounslow",
+  "Wembley",
+  "Camden",
+  "Soho",
+  "Greenwich",
+  "Uxbridge",
+  "Brixton",
+  "Harrow",
+  "Ilford",
+  "Romford",
+  "Barnet",
+  "Enfield",
+  "Barking",
+  "Lewisham",
+  "Putney",
+  "Clapham",
+  "Chelsea",
+  "Kensington",
+  "Fulham",
+  "Tooting",
+  "Balham",
+  "Acton",
+  "Brentford",
+  "Chiswick",
+  "Hammersmith",
+  "Shepherd's Bush",
+  "Liverpool Street",
+  "London Bridge",
+  "Bank",
+  "Moorgate",
+  "Southall",
+  "Whitechapel",
+  "North Greenwich",
+  "Morden",
+  "Bexley",
+  "Surbiton",
+  "New Malden",
+  "Sutton",
+  "Bromley"
+
+]
+
+  // SEARCH LOCATIONS
+function searchLocation(value, setSuggestions) {
+
+  if (value.trim().length < 1) {
+    setSuggestions([])
+    return
   }
 
-  function formatDuration(m) {
-    const h = Math.floor(m / 60)
-    const min = m % 60
-    if (h && min) return `${h} hr ${min} min`
-    if (h) return `${h} hr`
-    return `${min} min`
-  }
+  fetch(
+    `https://api.tfl.gov.uk/StopPoint/Search/${encodeURIComponent(value)}`
+  )
 
-  // --------------------------
-  // SEARCH LOCATION
-  // --------------------------
-  function searchLocation(value, setSuggestions) {
-    if (value.length < 2) {
+    .then(res => res.json())
+
+    .then(data => {
+
+      const results = (data.matches || [])
+
+        .filter(item => item.name)
+
+        .map(item => ({
+          id: item.id,
+          name: item.name,
+          lat: item.lat,
+          lon: item.lon
+        }))
+
+      const unique = results.filter(
+        (item, index, self) =>
+          index === self.findIndex(
+            t => t.name === item.name
+          )
+      )
+
+      setSuggestions(unique.slice(0, 10))
+    })
+
+    .catch(() => {
       setSuggestions([])
+    })
+}
+
+  // PLAN JOURNEY
+  function planJourney() {
+
+    if (!from || !to) {
+      alert("Please select both locations")
       return
+    }
+
+    setLoading(true)
+
+    setJourneys([])
+
+    let modes = ""
+
+    if (selectedMode !== "all") {
+      modes = `&mode=${selectedMode}`
     }
 
     fetch(
-      `https://api.tfl.gov.uk/Place/Search?name=${encodeURIComponent(
-        value
-      )}&types=StopPoint,Station`
+      `https://api.tfl.gov.uk/Journey/JourneyResults/${from.lat},${from.lon}/to/${to.lat},${to.lon}?${modes}`
     )
-      .then((res) => res.json())
-      .then((data) => {
-        const results = data.matches || []
-        const valid = results.filter((p) => p.lat && p.lon)
-        setSuggestions(valid.slice(0, 5))
-      })
-      .catch(() => setSuggestions([]))
-  }
 
-  // --------------------------
-  // CALCULATE
-  // --------------------------
-  function handleCalculate() {
-    setResult(null)
+      .then(res => res.json())
 
-    // JOURNEY MODE
-    if (isJourneyMode) {
-      if (!from || !to) {
-        setResult({ error: "Please select locations from the dropdown." })
-        return
-      }
+      .then(data => {
 
-      setLoading(true)
+        if (!data.journeys?.length) {
+          alert("No journey found")
+          setLoading(false)
+          return
+        }
 
-      let apiMode = ""
-      if (mode === "Bus") apiMode = "bus"
-      if (mode === "Rail")
-        apiMode =
-          "tube,overground,dlr,elizabeth-line,national-rail"
+        const formattedJourneys = data.journeys
+          .slice(0, 4)
+          .map(journey => ({
 
-      fetch(
-        `https://api.tfl.gov.uk/Journey/JourneyResults/${from.lat},${from.lon}/to/${to.lat},${to.lon}?mode=${apiMode}&journeyPreference=leasttime`
-      )
-        .then((res) => res.json())
-        .then((data) => {
-          if (!data || !data.journeys || data.journeys.length === 0) {
-            setResult({ error: "No route found." })
-            setLoading(false)
-            return
-          }
-
-          const journey = data.journeys[0]
-
-          const legs = journey.legs
-            .filter((l) => {
-              const name = l.mode.name.toLowerCase()
-              if (mode === "Bus") return name.includes("bus")
-              if (mode === "Rail") return !name.includes("bus")
-              return true
-            })
-            .map((l) => ({
-              mode: l.mode.name,
-              line: l.routeOptions?.[0]?.name || l.mode.name,
-              from: l.departurePoint.commonName,
-              to: l.arrivalPoint.commonName,
-              depart: new Date(l.departureTime).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              }),
-              arrive: new Date(l.arrivalTime).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              }),
-              instruction: l.instruction?.summary || "",
-            }))
-
-          const arrival = new Date(journey.arrivalDateTime)
-          const depart = new Date(journey.startDateTime)
-
-          let cost = 0
-          legs.forEach((l) => {
-            const m = l.mode.toLowerCase()
-            if (m.includes("bus")) cost += 1.75
-            if (m.includes("tube") || m.includes("train")) cost += 2.8
-          })
-
-          setResult({
-            type: "journey",
             duration: journey.duration,
-            arrival: arrival.toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-            depart: depart.toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-            legs,
-            cost: cost > 0 ? cost.toFixed(2) : null,
-          })
 
-          setLoading(false)
-        })
-        .catch(() => {
-          setResult({ error: "API error. Try again." })
-          setLoading(false)
-        })
+            fare: journey.fare?.totalCost || "N/A",
 
-      return
-    }
+            startDateTime: journey.startDateTime,
 
-    // DISTANCE MODE
-    const km = kmValue(distance, unit)
+            arrivalDateTime: journey.arrivalDateTime,
 
-    if (!km) {
-      setResult({ error: "Enter valid distance." })
-      return
-    }
+            legs: journey.legs.map(leg => ({
 
-    let time = 0
-    let cost = null
+              mode: leg.mode.name,
 
-    if (mode === "Normal Cycle") time = Math.round((km / 15) * 60)
+              line:
+                leg.routeOptions?.[0]?.name ||
+                leg.lineName ||
+                leg.mode.name,
 
-    if (mode === "Electric Cycle") {
-      time = Math.round((km / 20) * 60)
-      cost = (km * 0.35).toFixed(2)
-    }
+              from: leg.departurePoint.commonName,
 
-    if (mode === "Walking") time = Math.round((km / 5) * 60)
+              to: leg.arrivalPoint.commonName,
 
-    setResult({
-      type: "distance",
-      distance: km.toFixed(2),
-      time: formatDuration(time),
-      cost,
-    })
+              depart: new Date(
+                leg.departureTime
+              ).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit"
+              }),
+
+              arrive: new Date(
+                leg.arrivalTime
+              ).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit"
+              }),
+
+              duration: leg.duration,
+
+              instruction:
+                leg.instruction?.summary || ""
+
+            }))
+          }))
+
+        setJourneys(formattedJourneys)
+
+        setLoading(false)
+      })
+
+      .catch(() => {
+
+        alert("Journey planning failed")
+
+        setLoading(false)
+      })
   }
 
-  // --------------------------
-  // UI
-  // --------------------------
+
+  // GET LIVE TUBE STATUS
+  useEffect(() => {
+
+    fetch("https://api.tfl.gov.uk/Line/Mode/tube/Status")
+
+      .then(res => res.json())
+
+      .then(data => {
+
+        setTubeUpdates(data.slice(0, 6))
+      })
+
+      .catch(() => {
+        setTubeUpdates([])
+      })
+
+  }, [])
+
   return (
+
     <div className="page">
 
-      <section className="page-hero">
-        <h1>Fare and Journey Estimator</h1>
-      </section>
+      <div className="planner-layout">
 
-      <div className="estimator-card">
+        {/* LEFT */}
+        <div className="planner-main-card">
 
-        <label>Transport Mode</label>
-        <select value={mode} onChange={(e) => setMode(e.target.value)}>
-          <option>Bus</option>
-          <option>Rail</option>
-          <option>Normal Cycle</option>
-          <option>Electric Cycle</option>
-          <option>Walking</option>
-        </select>
+          <h1>Smart Journey Planner</h1>
 
-        {!isJourneyMode && (
-          <>
-            <label>Distance</label>
-            <input
-              value={distance}
-              onChange={(e) => setDistance(e.target.value)}
-            />
+          {/* FROM */}
+          <label>From</label>
 
-            <label>Unit</label>
-            <select value={unit} onChange={(e) => setUnit(e.target.value)}>
-              <option value="km">km</option>
-              <option value="miles">miles</option>
-            </select>
-          </>
-        )}
+          <div className="input-wrapper">
 
-        {isJourneyMode && (
-          <>
-            <label>From</label>
-            <input
-              value={fromLabel}
-              onChange={(e) => {
-                setFromLabel(e.target.value)
-                setFrom(null)
-                searchLocation(e.target.value, setFromSuggestions)
-              }}
-            />
+              <input
+                type="text"
+                value={fromLabel}
+                placeholder="Search London location"
 
-            {fromSuggestions.map((item) => (
-              <div
-                key={item.id}
-                className="suggestion-item"
-                onClick={() => {
-                  setFrom({ lat: item.lat, lon: item.lon })
-                  setFromLabel(item.name)
-                  setFromSuggestions([])
+                onFocus={() => {
+
+                  setShowFrom(true)
+
+                  searchLocation(
+                    "London",
+                    setFromSuggestions
+                  )
                 }}
-              >
-                {item.name}
-              </div>
-            ))}
 
-            <label>To</label>
-            <input
-              value={toLabel}
-              onChange={(e) => {
-                setToLabel(e.target.value)
-                setTo(null)
-                searchLocation(e.target.value, setToSuggestions)
-              }}
-            />
+                onChange={(e) => {
 
-            {toSuggestions.map((item) => (
-              <div
-                key={item.id}
-                className="suggestion-item"
-                onClick={() => {
-                  setTo({ lat: item.lat, lon: item.lon })
-                  setToLabel(item.name)
-                  setToSuggestions([])
+                  setFromLabel(e.target.value)
+
+                  setFrom(null)
+
+                  searchLocation(
+                    e.target.value,
+                    setFromSuggestions
+                  )
                 }}
-              >
-                {item.name}
+              />
+            {showFrom && fromSuggestions.length > 0 && (
+
+              <div className="dropdown-box">
+
+                {fromSuggestions.map(item => (
+
+                  <div
+                    key={item.id}
+                    className="dropdown-item"
+
+                    onClick={() => {
+
+                        fetch(`https://api.tfl.gov.uk/StopPoint/${item.id}`)
+                          .then(res => res.json())
+                          .then(full => {
+
+                            setFrom({
+                              lat: full.lat,
+                              lon: full.lon,
+                              name: full.commonName
+                            })
+
+                            setFromLabel(full.commonName)
+
+                            setFromSuggestions([])
+
+                            setShowFrom(false)
+                          })
+
+                      setFromLabel(item.name)
+
+                      setFromSuggestions([])
+
+                      setShowFrom(false)
+                    }}
+                  >
+
+                    <strong>{item.name}</strong>
+
+                  </div>
+
+                ))}
+
               </div>
-            ))}
-          </>
-        )}
 
-        <button onClick={handleCalculate}>Calculate</button>
+            )}
 
-        {loading && <p>Loading...</p>}
-        {result?.error && <p>{result.error}</p>}
+          </div>
 
-        {!result && !loading && (
-          <p className="hint-text">Enter details and click calculate</p>
-        )}
+          {/* TO */}
+          <label>To</label>
+
+          <div className="input-wrapper">
+
+              <input
+                type="text"
+                value={toLabel}
+                placeholder="Search destination"
+
+                onFocus={() => {
+
+                  setShowTo(true)
+
+                  searchLocation(
+                    "London",
+                    setToSuggestions
+                  )
+                }}
+
+                onChange={(e) => {
+
+                  setToLabel(e.target.value)
+
+                  setTo(null)
+
+                  searchLocation(
+                    e.target.value,
+                    setToSuggestions
+                  )
+                }}
+              />
+            {showTo && toSuggestions.length > 0 && (
+
+              <div className="dropdown-box">
+
+                {toSuggestions.map(item => (
+
+                  <div
+                    key={item.id}
+                    className="dropdown-item"
+
+                    onClick={() => {
+
+                      fetch(`https://api.tfl.gov.uk/StopPoint/${item.id}`)
+                        .then(res => res.json())
+                        .then(full => {
+
+                          setTo({
+                            lat: full.lat,
+                            lon: full.lon,
+                            name: full.commonName
+                          })
+
+                          setToLabel(full.commonName)
+
+                          setToSuggestions([])
+
+                          setShowTo(false)
+                        })
+
+                      setToLabel(item.name)
+
+                      setToSuggestions([])
+
+                      setShowTo(false)
+                    }}
+                  >
+
+                    <strong>{item.name}</strong>
+                  </div>
+
+                ))}
+
+              </div>
+
+            )}
+
+          </div>
+
+          {/* MODE SELECT */}
+          <label>Transport Mode</label>
+
+          <select
+            className="mode-select"
+            value={selectedMode}
+            onChange={(e) => {
+              setSelectedMode(e.target.value)
+            }}
+          >
+
+            <option value="all">
+              All Modes
+            </option>
+
+            <option value="bus">
+              Bus
+            </option>
+
+            <option value="tube">
+              Tube
+            </option>
+
+            <option value="national-rail">
+              National Rail
+            </option>
+
+            <option value="walking">
+              Walking
+            </option>
+
+            <option value="cycle">
+              Cycle
+            </option>
+
+          </select>
+
+          {/* BUTTON */}
+          <button
+            className="journey-btn"
+            onClick={planJourney}
+          >
+
+            Calculate Journey
+
+          </button>
+
+          {/* LOADING */}
+          {loading && (
+
+            <p className="loading-text">
+              Fetching live TfL data...
+            </p>
+
+          )}
+
+          {/* RESULTS */}
+          {journeys.length > 0 && (
+
+            <div className="journey-results">
+
+              {journeys.map((journey, journeyIndex) => (
+
+                <div
+                  className="journey-card"
+                  key={journeyIndex}
+                >
+
+                  <div className="summary-box">
+
+                    <div className="summary-item">
+
+                      <span>Duration</span>
+
+                      <strong>
+                        {journey.duration} mins
+                      </strong>
+
+                    </div>
+
+                    <div className="summary-item">
+
+                      <span>Fare</span>
+
+                      <strong>
+                        £{journey.fare}
+                      </strong>
+
+                    </div>
+
+                  </div>
+
+                  <div className="legs-box">
+
+                    {journey.legs.map((leg, index) => (
+
+                      <div
+                        className="leg-card"
+                        key={index}
+                      >
+
+                        <div className="leg-top">
+
+                          <h3>
+                            {leg.line}
+                          </h3>
+
+                          <span>
+                            {leg.mode}
+                          </span>
+
+                        </div>
+
+                        <p>
+                          {leg.from}
+                        </p>
+
+                        <p className="arrow">
+                          ↓
+                        </p>
+
+                        <p>
+                          {leg.to}
+                        </p>
+
+                        <div className="time-row">
+
+                          <span>
+                            {leg.depart}
+                          </span>
+
+                          <span>
+                            {leg.arrive}
+                          </span>
+
+                        </div>
+
+                        <div className="leg-bottom">
+
+                          <small>
+                            {leg.duration} mins
+                          </small>
+
+                          <small>
+                            {leg.instruction}
+                          </small>
+
+                        </div>
+
+                      </div>
+
+                    ))}
+
+                  </div>
+
+                </div>
+
+              ))}
+
+            </div>
+
+          )}
+
+        </div>
+
+        {/* RIGHT PANEL */}
+        <div className="live-card">
+
+          <h2>Live TfL Updates</h2>
+
+          {tubeUpdates.map((tube, index) => (
+
+            <div
+              className="tube-item"
+              key={index}
+            >
+
+              <div className="tube-top">
+
+                <h4>
+                  {tube.name}
+                </h4>
+
+              </div>
+
+              <p>
+
+                {
+                  tube.lineStatuses?.[0]
+                    ?.statusSeverityDescription
+                }
+
+              </p>
+
+            </div>
+
+          ))}
+
+        </div>
+
       </div>
 
-      {result?.type === "journey" && (
-        <div className="result-box">
-          <h3>Journey Result</h3>
-
-          <p>{result.depart} → {result.arrival}</p>
-          <p>{formatDuration(result.duration)}</p>
-          {result.cost && <p>Cost: £{result.cost}</p>}
-
-          {result.legs.map((l, i) => (
-            <div key={i}>
-              <strong>{l.line}</strong> ({l.mode}) <br />
-              {l.from} → {l.to} <br />
-              {l.depart} → {l.arrive} <br />
-              {l.instruction}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {result?.type === "distance" && (
-        <div className="result-box">
-          <p>{result.distance} km</p>
-          <p>{result.time}</p>
-          {result.cost && <p>£{result.cost}</p>}
-        </div>
-      )}
     </div>
+
   )
 }
 

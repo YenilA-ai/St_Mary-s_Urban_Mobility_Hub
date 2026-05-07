@@ -8,10 +8,8 @@ import walkingImage from "./Image/walking.png"
 import mainImage from "./Image/Home-Main.jpg"
 
 // components
-import LiveUpdates from "./LiveUpdates"
+import LiveTransport from "./LiveTransport"
 import Dashboard from "./Dashboard"
-import BusArrivals from "./BusArrivals"
-import TrainArrivals from "./TrainArrivals"
 
 function Home() {
 
@@ -116,9 +114,7 @@ function Home() {
 
       {/* live updates section */}
       <section className="live-section">
-        <LiveUpdates />
-        <BusArrivals />
-        <TrainArrivals />
+        <LiveTransport />
       </section>
     </div>
   )
