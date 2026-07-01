@@ -157,7 +157,9 @@ function searchLocation(value, setSuggestions) {
 
             duration: journey.duration,
 
-            fare: journey.fare?.totalCost || "N/A",
+            fare: journey.fare?.totalCost
+              ? (journey.fare.totalCost / 100).toFixed(2)
+              : "N/A",
 
             startDateTime: journey.startDateTime,
 
